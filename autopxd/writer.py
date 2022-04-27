@@ -26,17 +26,27 @@ def pairwise(iterable):
     next(b, None)
     return zip(a, b)
 
-def escape(name, include_C_name=False):
+# auto_escape = ["xnvme_", "xnvmec_"]
+auto_escape = ["xnvme_"]
+
+def escape(name, include_C_name=False, do_prefix=False):
     """Avoid name collisions with Python keywords by appending an underscore.
 
     if include_C_name=True, additionally append the orginal name in
     quotes, e.g.:     global -> global_ "global"
     """
-    if name is not None and name in keywords:
-        if include_C_name:
-            name = '{name}_ "{name}"'.format(name=name)
-        else:
-            name = name + "_"
+    if name is not None:
+        if auto_escape and any(name.startswith(esc) for esc in auto_escape):
+            if do_prefix:
+                name = f'__{name}'
+            elif include_C_name:
+                name = f'__{name} "{name}"'
+
+        if name in keywords:
+            if include_C_name:
+                name = f'{name}_ "{name}"'
+            else:
+                name = name + "_"
     return name
 
 
@@ -60,7 +70,7 @@ class AutoPxd(c_ast.NodeVisitor, PxdNode):
         for name in node.names:
             if name in STDINT_DECLARATIONS:
                 self.stdint_declarations.add(name)
-        self.append(" ".join(escape(name) for name in node.names))
+        self.append(" ".join(escape(name, do_prefix=True) for name in node.names))
 
     def visit_Block(self, node, kind):
         type_decl = self.child_of(c_ast.TypeDecl, -2)
@@ -73,9 +83,28 @@ class AutoPxd(c_ast.NodeVisitor, PxdNode):
                 name = self.path_name(kind[0], enumerated=True)
         if not node.decls and type_decl:
             # not a definition, must be a reference
-            self.append(name if node.name is None else escape(name))
+            self.append(name if node.name is None else escape(name, do_prefix=True))
             return
-        fields = self.collect(node)
+
+        # TODO: Only cosmetic, but maybe do something to keep member order?
+        def recursive_flatten_collect(node, prefix=''):
+            if node.decls is None:
+                return []
+
+            fields = [n for n in self.collect(node) if not hasattr(n, 'name') or n.name != '']
+            for n in fields:
+                if hasattr(n, 'name') and prefix != '':
+                    n.name = prefix+n.name
+                    n.name = f'{n.name.split("[")[0]} "{n.name.replace("__", ".")}"'
+
+            for n in node.decls:
+                if n.name is None and isinstance(n.type, (pycparser.c_ast.Struct, pycparser.c_ast.Union)):
+                    fields.extend(recursive_flatten_collect(n.type, prefix=prefix))
+                if isinstance(n.type, pycparser.c_ast.TypeDecl) and isinstance(n.type.type, (pycparser.c_ast.Struct, pycparser.c_ast.Union)):
+                    fields.extend(recursive_flatten_collect(n.type.type, prefix=prefix + n.type.declname + '__'))
+            return fields
+        fields = recursive_flatten_collect(node)
+
         # add the struct/union definition to the top level
         if type_def and node.name is None:
             self.decl_stack[0].append(Block(name, fields, kind, "ctypedef"))
@@ -124,9 +153,9 @@ class AutoPxd(c_ast.NodeVisitor, PxdNode):
         else:
             if items:
                 escname = name if node.name is None else escape(name, True)
-                self.decl_stack[0].append(Enum(escname, items, "cdef"))
+                self.decl_stack[0].append(Enum(escname, items, "cpdef"))
             if type_decl:
-                escname = name if node.name is None else escape(name)
+                escname = name if node.name is None else escape(name, do_prefix=True)
                 self.append(escname)
 
     def visit_Struct(self, node):
