@@ -1,3 +1,4 @@
+import pycparser
 from itertools import tee
 from pycparser import (
     c_ast,
@@ -80,7 +81,9 @@ class AutoPxd(c_ast.NodeVisitor, PxdNode):
             if type_def:
                 name = self.path_name()
             else:
-                name = self.path_name(kind[0], enumerated=True)
+                # Will be flattened and inlined somewhere else
+                return
+
         if not node.decls and type_decl:
             # not a definition, must be a reference
             self.append(name if node.name is None else escape(name, do_prefix=True))
@@ -114,9 +117,6 @@ class AutoPxd(c_ast.NodeVisitor, PxdNode):
                 # inline struct/union, add a reference to whatever name it was
                 # defined on the top level
                 self.append(escape(name))
-            elif node.name is None:
-                # Provide names for anonymous struct/unions inside other struct/unions
-                self.append(IdentifierType(f'{kind[0]}_{str(self.enumerate_node())}', escape(name, True)))
 
     def visit_Enum(self, node):
         items = []
@@ -245,14 +245,7 @@ class AutoPxd(c_ast.NodeVisitor, PxdNode):
         assert self.decl_stack.pop() == decls
         return decls
 
-    def enumerate_node(self):
-        # Simply find the index of the node in the parent node. Used for consistent auto-naming.
-        for node, next_node in pairwise(reversed(self.visit_stack)):
-            if hasattr(next_node, 'decls'):
-                return next_node.decls.index(node)
-        return None
-
-    def path_name(self, tag=None, enumerated=False):
+    def path_name(self, tag=None):
         names = []
         for node in self.visit_stack[:-2]:
             if hasattr(node, "declname") and node.declname:
@@ -262,8 +255,6 @@ class AutoPxd(c_ast.NodeVisitor, PxdNode):
         if tag:
             names.insert(0, '')
             names.append(tag)
-        if enumerated:
-            names.append(str(self.enumerate_node()))
         return "_".join(names)
 
     def child_of(self, node_type, index=None):
