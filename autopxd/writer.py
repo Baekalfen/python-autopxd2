@@ -1,3 +1,4 @@
+from itertools import tee
 from pycparser import (
     c_ast,
 )
@@ -19,6 +20,11 @@ from .nodes import (
     Type,
 )
 
+def pairwise(iterable):
+    "s -> (s0,s1), (s1,s2), (s2, s3), ..."
+    a, b = tee(iterable)
+    next(b, None)
+    return zip(a, b)
 
 def escape(name, include_C_name=False):
     """Avoid name collisions with Python keywords by appending an underscore.
@@ -39,7 +45,7 @@ class AutoPxd(c_ast.NodeVisitor, PxdNode):
         self.hdrname = hdrname
         self.decl_stack = [[]]
         self.visit_stack = []
-        self.stdint_declarations = []
+        self.stdint_declarations = set()
         self.dimension_stack = []
         self.constants = {}
 
@@ -52,8 +58,8 @@ class AutoPxd(c_ast.NodeVisitor, PxdNode):
 
     def visit_IdentifierType(self, node):
         for name in node.names:
-            if name in STDINT_DECLARATIONS and name not in self.stdint_declarations:
-                self.stdint_declarations.append(name)
+            if name in STDINT_DECLARATIONS:
+                self.stdint_declarations.add(name)
         self.append(" ".join(escape(name) for name in node.names))
 
     def visit_Block(self, node, kind):
@@ -64,12 +70,11 @@ class AutoPxd(c_ast.NodeVisitor, PxdNode):
             if type_def:
                 name = self.path_name()
             else:
-                name = self.path_name(kind[0])
-        if not node.decls:
-            if self.child_of(c_ast.TypeDecl, -2):
-                # not a definition, must be a reference
-                self.append(name if node.name is None else escape(name))
-                return
+                name = self.path_name(kind[0], enumerated=True)
+        if not node.decls and type_decl:
+            # not a definition, must be a reference
+            self.append(name if node.name is None else escape(name))
+            return
         fields = self.collect(node)
         # add the struct/union definition to the top level
         if type_def and node.name is None:
@@ -80,6 +85,9 @@ class AutoPxd(c_ast.NodeVisitor, PxdNode):
                 # inline struct/union, add a reference to whatever name it was
                 # defined on the top level
                 self.append(escape(name))
+            elif node.name is None:
+                # Provide names for anonymous struct/unions inside other struct/unions
+                self.append(IdentifierType(f'{kind[0]}_{str(self.enumerate_node())}', escape(name, True)))
 
     def visit_Enum(self, node):
         items = []
@@ -197,6 +205,10 @@ class AutoPxd(c_ast.NodeVisitor, PxdNode):
         # Do not recurse into the body of inline function definitions
         pass
 
+    def visit_StaticAssert(self, node):
+        # Just ignore asserts for now. Otherwise we get invalid output.
+        pass
+
     def collect(self, node):
         decls = []
         self.decl_stack.append(decls)
@@ -204,16 +216,26 @@ class AutoPxd(c_ast.NodeVisitor, PxdNode):
         assert self.decl_stack.pop() == decls
         return decls
 
-    def path_name(self, tag=None):
+    def enumerate_node(self):
+        # Simply find the index of the node in the parent node. Used for consistent auto-naming.
+        for node, next_node in pairwise(reversed(self.visit_stack)):
+            if hasattr(next_node, 'decls'):
+                return next_node.decls.index(node)
+        return None
+
+    def path_name(self, tag=None, enumerated=False):
         names = []
         for node in self.visit_stack[:-2]:
             if hasattr(node, "declname") and node.declname:
                 names.append(node.declname)
             elif hasattr(node, "name") and node.name:
                 names.append(node.name)
-        if tag is None:
-            return "_".join(names)
-        return "_{0}_{1}".format("_".join(names), tag)
+        if tag:
+            names.insert(0, '')
+            names.append(tag)
+        if enumerated:
+            names.append(str(self.enumerate_node()))
+        return "_".join(names)
 
     def child_of(self, node_type, index=None):
         if index is None:
