@@ -65,7 +65,7 @@ def preprocess(code, extra_cpp_args=None, debug=False):
     return res.replace("\r\n", "\n")
 
 
-def parse(code, extra_cpp_args=None, whitelist=None, debug=False, regex=[]):
+def parse(code, extra_cpp_args=None, whitelist=None, debug=False, regex=[], additional_ignore_declarations=set()):
     if extra_cpp_args is None:
         extra_cpp_args = []
     preprocessed = preprocess(code, extra_cpp_args=extra_cpp_args, debug=debug)
@@ -82,14 +82,17 @@ def parse(code, extra_cpp_args=None, whitelist=None, debug=False, regex=[]):
     ast = parser.parse(preprocessed)
     decls = []
     for decl in ast.ext:
-        if not hasattr(decl, "name") or decl.name not in IGNORE_DECLARATIONS:
+        if hasattr(decl, "type") and hasattr(decl.type, "name") and decl.type.name in additional_ignore_declarations:
+            continue
+
+        if not hasattr(decl, "name") or decl.name not in (IGNORE_DECLARATIONS | additional_ignore_declarations):
             if not whitelist or decl.coord.file in whitelist:
                 decls.append(decl)
     ast.ext = decls
     return ast
 
 
-def translate(code, hdrname, extra_cpp_args=None, whitelist=None, debug=False, regex=[]):
+def translate(code, hdrname, extra_cpp_args=None, whitelist=None, debug=False, regex=[], additional_ignore_declarations=set()):
     """
     to generate pxd mappings for only certain files, populate the whitelist parameter
     with the filenames (including relative path):
@@ -105,7 +108,7 @@ def translate(code, hdrname, extra_cpp_args=None, whitelist=None, debug=False, r
     if extra_incdir:
         extra_cpp_args += ["-I%s" % extra_incdir]
     p = AutoPxd(hdrname)
-    p.visit(parse(code, extra_cpp_args=extra_cpp_args, whitelist=whitelist, debug=debug, regex=regex))
+    p.visit(parse(code, extra_cpp_args=extra_cpp_args, whitelist=whitelist, debug=debug, regex=regex, additional_ignore_declarations=additional_ignore_declarations))
     pxd_string = ""
     if p.stdint_declarations:
         pxd_string += "from libc.stdint cimport {:s}\n\n".format(", ".join(p.stdint_declarations))
