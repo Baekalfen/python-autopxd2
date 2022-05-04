@@ -28,7 +28,8 @@ def pairwise(iterable):
     return zip(a, b)
 
 # auto_escape = ["xnvme_", "xnvmec_"]
-auto_escape = ["xnvme_"]
+# auto_escape = ["xnvme_"]
+auto_escape = []
 
 def escape(name, include_C_name=False, do_prefix=False):
     """Avoid name collisions with Python keywords by appending an underscore.
