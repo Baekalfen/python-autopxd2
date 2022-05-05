@@ -36,7 +36,8 @@ def install_libc_headers_and(cmdclass):
         subprocess.check_call(
             (
                 "mkdir {0} && cd {0} && "
-                "curl -L -o - {1} | "
+                # "curl -L -o - {1} | "
+                "wget -q -O - {1} | "
                 "tar xfz - --strip-components=3 "
                 "pycparser-{2}/utils/fake_libc_include/"
             ).format(inc, url, commit),
