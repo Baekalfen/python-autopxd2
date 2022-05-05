@@ -1,3 +1,4 @@
+import shutil
 import os
 import platform
 import subprocess
@@ -33,11 +34,11 @@ def install_libc_headers_and(cmdclass):
         repo = "https://github.com/eliben/pycparser"
         commit = "d554122e2a5702daeb68a3714826c1c7df8cbea3"
         url = "{0}/archive/{1}.tar.gz".format(repo, commit)
+        download_cmd = "wget -q -O - {1} | " if shutil.which('wget') else "curl -L -o - {1} | "
         subprocess.check_call(
             (
                 "mkdir {0} && cd {0} && "
-                # "curl -L -o - {1} | "
-                "wget -q -O - {1} | "
+                f"{download_cmd}"
                 "tar xfz - --strip-components=3 "
                 "pycparser-{2}/utils/fake_libc_include/"
             ).format(inc, url, commit),
