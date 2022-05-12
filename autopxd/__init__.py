@@ -85,6 +85,9 @@ def parse(code, extra_cpp_args=None, whitelist=None, debug=False, regex=[], addi
         if hasattr(decl, "type") and hasattr(decl.type, "name") and decl.type.name in additional_ignore_declarations:
             continue
 
+        if hasattr(decl, "decl") and hasattr(decl.decl, "name") and decl.decl.name in additional_ignore_declarations:
+            continue
+
         if not hasattr(decl, "name") or decl.name not in (IGNORE_DECLARATIONS | additional_ignore_declarations):
             if not whitelist or decl.coord.file in whitelist:
                 decls.append(decl)
